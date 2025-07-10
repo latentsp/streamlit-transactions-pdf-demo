@@ -1,13 +1,15 @@
 import streamlit as st
 from google import genai
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field   
 
 
 class Transaction(BaseModel):
     date: str
     description: str
     amount: float
+    is_credit: bool = Field(description="is credit or debit")
+    category: str = Field(description="category of transaction")
 
 
 class Structure(BaseModel):
@@ -16,9 +18,17 @@ class Structure(BaseModel):
     description: str
 
 
+EXTRACT_TRANSACTIONS_PROMPT_FORMAT = """
+You are a helpful and proactive financial assistant. 
+Your goal is to analyze a user's bank statement and extract all the transactions.
+
+Transaction Categories:
+{transaction_categories}
+"""
+
 IDENTIFY_STRUCTURES_PROMPT_FORMAT = """
-You are a helpful and proactive financial assistant AI. 
-Your goal is to analyze a user's bank transactions to identify patterns. 
+You are a helpful and proactive financial assistant. 
+Your goal is to analyze a user's bank transactions to identify patterns.
 You are specifically looking for regular, recurring transfers to the same recipient, which might indicate the user is moving money to another one of their own accounts. 
 Your tone should be helpful and inquisitive, not accusatory.
 
@@ -36,6 +46,36 @@ If there are no potential structures, return an empty list.
 </transaction_data>
 """
 
+TRANSACTION_CATEGORIES = [
+    "Food & Drink",
+    "Restaurants & Cafes",
+    "Groceries & Supermarkets",
+    "Transportation",
+    "Travel & Lodging",
+    "Health & Medical",
+    "Fitness & Sports",
+    "Entertainment & Leisure",
+    "Shopping & Retail",
+    "Home & Garden",
+    "Financial Services",
+    "Insurance",
+    "Utilities & Bills",
+    "Education",
+    "Children & Family",
+    "Pets & Animals",
+    "Automotive",
+    "Professional Services",
+    "Government & Non-Profit",
+    "Technology & Electronics",
+    "Personal Care & Beauty",
+    "Real Estate & Property",
+    "Taxes & Government",
+    "Miscellaneous",
+    "Outdoors & Nature",
+    "Legal",
+    "Banking & Finance",
+]
+
 _genai_client = None
 def get_genai_client():
     global _genai_client
@@ -46,11 +86,12 @@ def get_genai_client():
 
 def extract_transactions(pdf_bytes: bytes) -> list[Transaction]:
     client = get_genai_client()
+    transaction_categories_str = "\n".join([f"- {t}" for t in TRANSACTION_CATEGORIES])
     response = client.models.generate_content(
         model="gemini-2.5-flash", 
         contents=[
             genai.types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
-            "Extract all the transactions from the pdf"
+            EXTRACT_TRANSACTIONS_PROMPT_FORMAT.format(transaction_categories=transaction_categories_str),
         ],
         config={
             "response_mime_type": "application/json",
@@ -76,14 +117,22 @@ def identify_structures(transactions: list[Transaction]) -> list[Structure]:
     return response.parsed
 
 
+def print_transactions(transactions: list[Transaction]):
+    data_frame = pd.DataFrame([t.model_dump(exclude={"is_credit"}) for t in transactions])
+    st.dataframe(data_frame)
+
+
 uploaded_file = st.file_uploader("Choose file")
 if uploaded_file:
     st.write("-" * 100)
     with st.spinner("Extracting transactions..."):
         transactions = extract_transactions(uploaded_file.getvalue())
         st.write("Transactions:")
-        data_frame = pd.DataFrame([t.model_dump() for t in transactions])
-        st.dataframe(data_frame)
+        credit, debit = st.tabs(["Credit", "Debit"])
+        with credit:
+            print_transactions([t for t in transactions if t.is_credit])
+        with debit:
+            print_transactions([t for t in transactions if not t.is_credit])
     if transactions:
         st.write("-" * 100)
         with st.spinner("Identifying structures..."):
@@ -93,8 +142,7 @@ if uploaded_file:
                 for structure in structures:
                     if structure.transactions:
                         with st.expander(structure.title.replace("$", "\\$")):
-                            data_frame = pd.DataFrame([t.model_dump() for t in structure.transactions])
-                            st.dataframe(data_frame)
+                            print_transactions(structure.transactions)
                             st.write(structure.description.replace("$", "\\$"))
             else:
                 st.write("No structures found")
