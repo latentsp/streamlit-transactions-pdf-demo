@@ -15,7 +15,10 @@ Transaction:
 
 
 GROUP_INCOME_SOURCES_PROMPT_FORMAT = """
-You are a helpful assistant that groups income sources for a given list of transactions. Group by type of income(w2/1099), place of work, etc.
+You are a helpful assistant that groups income sources for a given list of transactions. Group by income category, place of work, etc.
+
+Income Categories:
+{income_categories}
 
 Transactions:
 {transactions}
@@ -84,8 +87,9 @@ class IncomeCategory(BaseModel):
 
 class IncomeSourceGroup(BaseModel):
     title: str
-    transaction_ids: list[str]
+    income_category: str
     description: str
+    transaction_ids: list[str]
 
 
 class Structure(BaseModel):
@@ -119,6 +123,7 @@ def group_income_sources(transactions: list[dict]) -> list[IncomeSourceGroup]:
         contents=[
             GROUP_INCOME_SOURCES_PROMPT_FORMAT.format(
                 transactions=json.dumps(transactions, indent=2, default=str),
+                income_categories="\n".join(SUPPORTED_INCOME_CATEGORIES),
             )
         ],
         config={

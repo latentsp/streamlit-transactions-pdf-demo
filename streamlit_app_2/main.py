@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from plaid_helper import get_transactions
-from llm_helper import identify_income_category, identify_structures, group_income_sources
-from concurrent.futures import ThreadPoolExecutor
+from llm_helper import identify_structures, group_income_sources
 
 def get_lean_transaction(transaction: dict):
     keys = {
@@ -36,17 +35,12 @@ if st.button("Load Transactions"):
     st.write("-" * 100)
     with st.spinner("Identifying incomes..."):
         if income_transactions:
-            with ThreadPoolExecutor() as executor:
-                tasks = {transaction_id: executor.submit(identify_income_category, transaction) for transaction_id, transaction in income_transactions.items()}
-                for transaction_id, task in tasks.items():
-                    income_transactions[transaction_id]["income_category"] = task.result()
-
             income_sources = group_income_sources(income_transactions.values())
             st.write("Income:")
             for income_source in income_sources:
-                with st.expander(income_source.title.replace("$", "\\$")):
+                with st.expander(income_source.title.replace("$", "\\$") + f" ({income_source.income_category})"):
                     st.write(income_source.description.replace("$", "\\$"))
-                    data_frame = pd.DataFrame([get_lean_transaction(income_transactions[t]) for t in income_source.transaction_ids])
+                    data_frame = pd.DataFrame([get_lean_transaction(income_transactions[t]) for t in income_source.transaction_ids if t in income_transactions])
                     st.dataframe(data_frame)
         else:
             st.write("No income transactions found")
